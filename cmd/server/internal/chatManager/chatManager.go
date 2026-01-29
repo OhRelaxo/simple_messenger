@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 )
 
 type setName struct {
@@ -100,16 +101,9 @@ func (cm *ChatManager) HandleConnection(conn net.Conn) {
 		return
 	}
 
-	/*
-		allClients := cm.listNames()
-		for _, client := range allClients {
-
-		}
-	*/
-
 	for {
 		// hier soll es dann eine Möglichkeit geben Broadcast, multicast und unicast zu nutzen (routing), sowie sich die aktuellen nutzer anzeigen zu lassen,
-		// um zu entscheiden mit welchen benutzer man sich unterhalten möchte
+		// um zu entscheiden mit welchen benutzer man sich unterhalten möchte.
 
 		message, err := reader.ReadString('\n')
 		if err != nil {
@@ -118,12 +112,40 @@ func (cm *ChatManager) HandleConnection(conn net.Conn) {
 		}
 		fmt.Print("Received message: ", message)
 
-		_, err = conn.Write([]byte("got message: " + message))
+		//cleaned := cleanUpMessage(message)
+		//log.Printf("cleaned Message: '%s'", cleaned)
+
+		var response string
+		switch message {
+		case "help":
+			response += "du kannst die befehle:\nlistclients\nausführen"
+		case "listclients":
+			clients := cm.listNames()
+			for _, client := range clients {
+				if client == nameManager {
+					response += client + "(you)" + "\n"
+				}
+				response += client + "\n"
+			}
+		default:
+			response += "Received message: " + message
+		}
+
+		log.Println("responding to client with response: ", response)
+		_, err = conn.Write([]byte(response))
 		if err != nil {
 			log.Println("failed to send response: ", err)
-			break
+			return
 		}
 	}
+}
+
+func cleanUpMessage(message string) string {
+	trimone := strings.Trim(message, " ")
+	trimtwo := strings.TrimRight(trimone, "\n")
+
+	lower := strings.ToLower(trimtwo)
+	return lower
 }
 
 /*
