@@ -1,8 +1,9 @@
 package chatmanager
 
 import (
-	"bufio"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"strings"
@@ -79,13 +80,12 @@ func NewChatManager() *ChatManager {
 
 func (cm *ChatManager) HandleConnection(conn net.Conn) {
 	defer conn.Close()
-	reader := bufio.NewReader(conn)
 
-	_, err := conn.Write([]byte("write your name:\n"))
+	err := sendResponse("write your name:\n", conn)
 	if err != nil {
 		log.Println("failed to send response: ", err)
 	}
-	name, err := reader.ReadString('\n')
+	name, err := reciveMessage(conn)
 	if err != nil {
 		log.Println("failed to read message: ", err)
 		return
@@ -95,7 +95,7 @@ func (cm *ChatManager) HandleConnection(conn net.Conn) {
 	if nameManager != name {
 		log.Printf("ein Client hat ein falschen Namen erhalten\nname laut Manager: %s\nname laut Client: %s\n", nameManager, name)
 	}
-	_, err = conn.Write([]byte("dein Name ist: " + name))
+	err = sendResponse("dein Name ist: "+name, conn)
 	if err != nil {
 		log.Println("failed to send response: ", err)
 		return
@@ -105,25 +105,27 @@ func (cm *ChatManager) HandleConnection(conn net.Conn) {
 		// hier soll es dann eine Möglichkeit geben Broadcast, multicast und unicast zu nutzen (routing), sowie sich die aktuellen nutzer anzeigen zu lassen,
 		// um zu entscheiden mit welchen benutzer man sich unterhalten möchte.
 
-		message, err := reader.ReadString('\n')
+		message, err := reciveMessage(conn)
 		if err != nil {
 			log.Println("failed to read message: ", err)
 			break
 		}
 		fmt.Print("Received message: ", message)
 
-		//cleaned := cleanUpMessage(message)
-		//log.Printf("cleaned Message: '%s'", cleaned)
+		cleaned := cleanUpMessage(message)
+		log.Printf("cleaned Message: '%s'", cleaned)
 
 		var response string
-		switch message {
+		switch cleaned {
 		case "help":
-			response += "du kannst die befehle:\nlistclients\nausführen"
+			response += "du kannst die befehle:\nlistclients\nausführen\n"
 		case "listclients":
 			clients := cm.listNames()
 			for _, client := range clients {
 				if client == nameManager {
-					response += client + "(you)" + "\n"
+					trimed := strings.TrimRight(client, "\n")
+					response += trimed + " (you)" + "\n"
+					continue
 				}
 				response += client + "\n"
 			}
@@ -132,7 +134,7 @@ func (cm *ChatManager) HandleConnection(conn net.Conn) {
 		}
 
 		log.Println("responding to client with response: ", response)
-		_, err = conn.Write([]byte(response))
+		err = sendResponse(response, conn)
 		if err != nil {
 			log.Println("failed to send response: ", err)
 			return
@@ -141,11 +143,43 @@ func (cm *ChatManager) HandleConnection(conn net.Conn) {
 }
 
 func cleanUpMessage(message string) string {
-	trimone := strings.Trim(message, " ")
-	trimtwo := strings.TrimRight(trimone, "\n")
+	trimOne := strings.Trim(message, " ")
+	trimeTwo := strings.TrimRight(trimOne, "\n")
 
-	lower := strings.ToLower(trimtwo)
+	lower := strings.ToLower(trimeTwo)
 	return lower
+}
+
+func sendResponse(message string, conn net.Conn) error {
+	msgBytes := []byte(message)
+
+	length := int32(len(msgBytes))
+	err := binary.Write(conn, binary.BigEndian, length)
+	if err != nil {
+		return err
+	}
+
+	_, err = conn.Write(msgBytes)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func reciveMessage(conn net.Conn) (string, error) {
+	var length int32
+	err := binary.Read(conn, binary.BigEndian, &length)
+	if err != nil {
+		return "", err
+	}
+
+	payload := make([]byte, length)
+	_, err = io.ReadFull(conn, payload)
+	if err != nil {
+		return "", err
+	}
+
+	return string(payload), nil
 }
 
 /*

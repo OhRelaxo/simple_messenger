@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -23,7 +25,7 @@ func main() {
 	defer conn.Close()
 
 	fmt.Println("Connected to server, checking for message from server...")
-	response, _ := bufio.NewReader(conn).ReadString('\n')
+	response, err := reciveResponse(conn)
 	if response != "" {
 		fmt.Printf("Response from server: \n%s", response)
 	} else {
@@ -33,17 +35,49 @@ func main() {
 
 	for {
 		message, _ := reader.ReadString('\n')
-		_, err := conn.Write([]byte(message))
+		err := sendMessage(message, conn)
 		if err != nil {
 			log.Println("Error sending message:", err)
 			break
 		}
 
-		response, err := bufio.NewReader(conn).ReadString('\n')
+		response, err := reciveResponse(conn)
 		if err != nil {
 			log.Println("Error receiving response:", err)
 			break
 		}
 		fmt.Printf("Response from server: \n%s", response)
 	}
+}
+
+func reciveResponse(conn net.Conn) (string, error) {
+	var length int32
+	err := binary.Read(conn, binary.BigEndian, &length)
+	if err != nil {
+		return "", err
+	}
+
+	payload := make([]byte, length)
+	_, err = io.ReadFull(conn, payload)
+	if err != nil {
+		return "", err
+	}
+
+	return string(payload), nil
+}
+
+func sendMessage(message string, conn net.Conn) error {
+	msgBytes := []byte(message)
+
+	length := int32(len(msgBytes))
+	err := binary.Write(conn, binary.BigEndian, length)
+	if err != nil {
+		return err
+	}
+
+	_, err = conn.Write(msgBytes)
+	if err != nil {
+		return err
+	}
+	return nil
 }
